@@ -45,6 +45,7 @@ jobs:
         sudo docker login -u ${{ secrets.ACTION_USER }} -p ${{ secrets.ACTION_TOKEN }} ghcr.io
         docker login -u ${{ secrets.ACTION_USER }} -p ${{ secrets.ACTION_TOKEN }} ghcr.io
         ./build.sh --skip-maven api ${{ env.VCELL_REPO_NAMESPACE }} ${{ env.VCELL_TAG }}
+        ./build.sh --skip-maven mongo ${{ env.VCELL_REPO_NAMESPACE }} ${{ env.VCELL_TAG }}
     - name: tag as latest and push to registry
       shell: bash
 #        for CONTAINER in vcell-api vcell-batch vcell-clientgen vcell-data vcell-db vcell-mongo vcell-sched vcell-submit vcell-web;\

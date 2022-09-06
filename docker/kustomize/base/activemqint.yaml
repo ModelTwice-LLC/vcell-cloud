@@ -48,7 +48,7 @@ spec:
               value: dummy
           image: webcenter/activemq:5.14.3
           name: activemqint
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 61616
             - containerPort: 8161
