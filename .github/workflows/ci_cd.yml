@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI-minimal-build
 
 on:
   push:
@@ -58,12 +58,6 @@ jobs:
           mvn -version
           java -version
           mvn --batch-mode clean install dependency:copy-dependencies -DskipTests=true
-
-      - name: Test building of docker image
-        run: |
-          docker build \
-            --file Dockerfile \
-            .
 
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
