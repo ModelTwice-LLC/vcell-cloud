@@ -43,7 +43,7 @@ ENV dbpswdfile=/run/secrets/dbpswd \
     jmspswdfile=/run/secrets/jmspswd
 
 EXPOSE 8000
-EXPOSE 80
+EXPOSE 8080
 
 ENTRYPOINT java \
     -Xdebug -Xrunjdwp:transport=dt_socket,address=8000,server=y,suspend=n \
@@ -73,4 +73,4 @@ ENTRYPOINT java \
 	-Dvcelldata.web.server.port=${webDataPort} \
 	-Dvcell.smtp.emailAddress="${smtp_emailaddress}" \
 	-cp "./lib/*" org.vcell.rest.VCellApiCloudMain \
-	/usr/local/app/docroot 80
+	/usr/local/app/docroot 8080
