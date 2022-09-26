@@ -46,17 +46,17 @@ spec:
               value: clientStatus
             - name: ACTIVEMQ_USERS_clientUser
               value: dummy
-          image: webcenter/activemq:5.14.3
+          image: 'docker.io/webcenter/activemq:5.14.3'
           name: activemqint
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 61616
             - containerPort: 8161
-          resources:
-            requests:
-              memory: "1048Mi"
-              cpu: "250m"
-            limits:
-              memory: "2048Mi"
-              cpu: "500m"
+          # resources:
+          #   requests:
+          #     memory: "512Mi"
+          #     cpu: "500m"
+          #   limits:
+          #     memory: "1024Mi"
+          #     cpu: "1000m"
       restartPolicy: Always
