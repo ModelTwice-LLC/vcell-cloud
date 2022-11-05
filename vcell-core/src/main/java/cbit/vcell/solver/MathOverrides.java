@@ -10,6 +10,7 @@
 
 package cbit.vcell.solver;
 
+import cbit.vcell.mapping.MathSymbolMapping;
 import cbit.vcell.math.*;
 import cbit.vcell.model.common.VCellErrorMessages;
 import cbit.vcell.parser.*;
@@ -21,6 +22,7 @@ import org.vcell.util.Issue.IssueCategory;
 import org.vcell.util.IssueContext.ContextType;
 
 import java.util.*;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -62,18 +64,53 @@ public class MathOverrides implements Matchable, java.io.Serializable {
 				actualValue.bindExpression(symbolTable);
 			}
 		}
+
+		@Override
 		public boolean compareEqual(Matchable obj){
 			if (obj instanceof MathOverrides.Element){
 				MathOverrides.Element element = (MathOverrides.Element)obj;
 				if (!Compare.isEqualOrNull(actualValue,element.actualValue) ||
-					!Compare.isEqual(name,element.name) ||
-					!Compare.isEqualOrNull(spec,element.spec)){
+						!Compare.isEqual(name,element.name) ||
+						!Compare.isEqualOrNull(spec,element.spec)){
 					return false;
 				}
 				return true;
 			}
 			return false;
 		}
+
+		public boolean compareEquivalent(Element element){
+			if (!Compare.isEqual(name, element.name)){
+				return false;
+			}
+			//
+			// check simple override
+			//
+			if (actualValue!=null && element.actualValue!=null){
+				if (!ExpressionUtils.functionallyEquivalent(actualValue, element.actualValue)){
+					return false;
+				}
+			}else if (actualValue!=null || element.actualValue!=null){
+				return false; // only one is non-null - mismatch
+			}
+
+			//
+			// check constant array spec
+			//
+			if (spec!=null && element.spec!=null){
+				if (!Compare.isEqual(spec.getName(), element.spec.getName()) || spec.getType() != element.spec.getType()){
+					return false;
+				}
+				if (!Compare.isEqual(spec.getConstants(),element.spec.getConstants(), new ExpressionUtils.ExpressionEquivalencePredicate())) {
+					return false;
+				}
+			}else if (spec!=null || element.spec!=null){
+				return false;
+			}
+
+			return true;
+		}
+
 		public Expression getActualValue() {
 			return actualValue;
 		}
@@ -217,14 +254,26 @@ public boolean compareEqual(Matchable obj) {
 }
 
 
-public boolean compareEquivalent(MathOverrides oldMathOverrides) {
+public boolean compareEquivalent(MathOverrides otherMathOverrides) {
 	// first see if they are equal
-	if (compareEqual(oldMathOverrides)){
+	if (compareEqual(otherMathOverrides)){
 		return true;
 	}
-	// if not, see if they are equivalent (calls updateFromMathDescription() which corrects obsolete overridden names).
-	MathOverrides updatedMathOverrides = new MathOverrides(getSimulation(), oldMathOverrides);
-	return compareEqual(updatedMathOverrides);
+	List<Element> elements = Collections.list(getOverridesHash().elements());
+	List<Element> otherElements = Collections.list(otherMathOverrides.getOverridesHash().elements());
+	// sort elements by name of overridden constant
+	elements.sort((el1,el2) -> el1.name.compareTo(el2.name));
+	otherElements.sort((el1,el2) -> el1.name.compareTo(el2.name));
+
+	if (elements.size() != otherElements.size()){
+		return false;
+	}
+	for (int i=0; i<elements.size(); i++){
+		if (!elements.get(i).compareEquivalent(otherElements.get(i))){
+			return false;
+		}
+	}
+	return true;
 }
 
 
@@ -294,6 +343,16 @@ public Expression getActualExpression(String key, int index) {
 	}
 }
 
+
+public int[] getScanBounds() {
+	String[] names = getScannedConstantNames();
+	java.util.Arrays.sort(names); // must do things in a consistent way
+	int[] bounds = new int[names.length]; // bounds of scanning matrix
+	for (int i = 0; i < names.length; i++){
+		bounds[i] = getConstantArraySpec(names[i]).getNumValues() - 1;
+	}
+	return bounds;
+}
 
 public String[] getAllConstantNames() {
 	Enumeration<Constant> en = getSimulation().getMathDescription().getConstants();
@@ -579,8 +638,7 @@ private void putConstant(Constant value, boolean bFireEvent) throws ExpressionEx
 		def = ((Constant)var).getExpression();
 	} else {
 		// ignore
-		logger.error("Math does not have constant with name: "+name);
-		return;
+		logger.warn("Math override '"+name+"' not found, adding to overrides anyway");
 	}
 	if (act.compareEqual(def)) {
 		if (getOverridesHash().containsKey(name)) {
@@ -789,31 +847,31 @@ void updateFromMathDescription() {
 
 	HashMap<String, MathOverridesResolver.SymbolReplacement> renamedMap = new HashMap<>();
 	for (String name : referencedNames){
-		if (!mathDescriptionHash.contains(name)){
-			MathOverridesResolver mathOverridesResolver = getSimulation().getSimulationOwner().getMathOverridesResolver();
+		SimulationOwner so = getSimulation().getSimulationOwner();
+		if(so != null) {
+			MathOverridesResolver mathOverridesResolver = so.getMathOverridesResolver();
 			if (mathOverridesResolver != null) {
 				MathOverridesResolver.SymbolReplacement replacement = mathOverridesResolver.getSymbolReplacement(name);
 				if (replacement != null) {
-					allFactorSymbols.addAll(replacement.getFactorSymbols());
-					Element element = overridesHash.remove(name);
-					if (element != null) {
-						java.util.function.Function<Expression, Expression> scaleExpressionsByUnitFactor = exp -> {
-							Expression substitutedExp = Expression.mult(exp, replacement.factor);
-							try {
-								substitutedExp = ExpressionUtils.simplifyUsingJSCL(substitutedExp);
-							} catch (ExpressionException e) {
-								logger.warn("failed to simplify '"+substitutedExp.infix()+"': "+e.getMessage(),e);
+					replace(allFactorSymbols, renamedMap, name, replacement, false);
+				} else {
+					// try again with function name for clamped variables previous math naming style
+					MathSymbolMapping mathSymbolMapping = (MathSymbolMapping) mathDescription.getSourceSymbolMapping();
+					if (mathSymbolMapping != null) {
+						Variable var = mathSymbolMapping.findVariableByName(name);
+						if (var != null && var.isConstant()) {
+							name = var.getName();
+							MathOverridesResolver.SymbolReplacement replacement2 = mathOverridesResolver
+									.getSymbolReplacement(name + "_init");
+							if (replacement2 != null) {
+								// we need to force this one since it is the one that was actually used in the old maths
+								replace(allFactorSymbols, renamedMap, name, replacement2, true);
 							}
-							return substitutedExp;
-						};
-						element.applyFunctionToExpressions(scaleExpressionsByUnitFactor);
-						element.changeName(replacement.newName);
-						overridesHash.put(replacement.newName, element);
-						removeConstant(name);
+						} 
 					}
-					renamedMap.put(name, replacement);
-				}else{
-					logger.error("didn't find a replacement for math override symbol " + name);
+					if (!mathDescriptionHash.contains(name)) {
+						logger.error("didn't find a replacement for math override symbol " + name);
+					}
 				}
 			}
 		}
@@ -848,17 +906,8 @@ void updateFromMathDescription() {
 	}
 
 	java.util.function.Function<Expression, Expression> simplifyFunction = (exp) -> {
-		for (String factorSymbol : allFactorSymbols) {
-			try {
-				exp = exp.flattenFactors(factorSymbol);
-			} catch (ExpressionException e) {
-				String msg = "failed to simplify unit converted Math Override expression '" + exp.infix() + "'";
-				logger.error(msg, e);
-				throw new RuntimeException(msg, e);
-			}
-		}
 		try {
-			Expression simplifiedExp = ExpressionUtils.simplifyUsingJSCL(exp);
+			Expression simplifiedExp = exp.simplifyJSCL();
 			simplifiedExp.bindExpression(mathDescription);
 			exp = simplifiedExp;
 		} catch (Exception e) {
@@ -877,6 +926,36 @@ void updateFromMathDescription() {
 	}
 
 	refreshDependencies();
+}
+
+
+private void replace(LinkedHashSet<String> allFactorSymbols,
+		HashMap<String, MathOverridesResolver.SymbolReplacement> renamedMap, String name,
+		MathOverridesResolver.SymbolReplacement replacement, boolean bForceDuplicate) {
+	{
+		allFactorSymbols.addAll(replacement.getFactorSymbols());
+		Element element = overridesHash.remove(name);
+		if (element != null) {
+			java.util.function.Function<Expression, Expression> scaleExpressionsByUnitFactor = exp -> {
+				Expression substitutedExp = Expression.mult(exp, replacement.factor);
+				try {
+					substitutedExp = substitutedExp.simplifyJSCL();
+				} catch (ExpressionException e) {
+					logger.warn("failed to simplify '"+substitutedExp.infix()+"': "+e.getMessage(),e);
+				}
+				return substitutedExp;
+			};
+			element.applyFunctionToExpressions(scaleExpressionsByUnitFactor);
+			element.changeName(replacement.newName);
+			if (!overridesHash.containsKey(replacement.newName) || bForceDuplicate) {
+				overridesHash.put(replacement.newName, element);
+			}
+			if (!name.equals(replacement.newName)){
+				removeConstant(name);
+			}
+		}
+		renamedMap.put(name, replacement);
+	}
 }
 
 
@@ -921,7 +1000,7 @@ public void refreshDependencies() {
 		}
 	} catch (ExpressionBindingException e) {
 		logger.error("failed to bind a math override: "+e.getMessage(), e);
-		throw new RuntimeException(e.getMessage());
+		throw new RuntimeException(e.getMessage(), e);
 	}	
 }
 

@@ -293,7 +293,7 @@ public static UnitDefinition getSBMLUnitDefinition(VCUnitDefinition vcUnitDefn, 
 //		}
 //		System.err.println("vcUnit is "+symbols[i]+",  ucarUnit is "+ucarUnit.getSymbol());
 	}
-	sbmlUnitDefn.setId(TokenMangler.mangleToSName(vcSymbol));
+	sbmlUnitDefn.setId("Unit_"+TokenMangler.mangleToSName(vcSymbol));
 	return sbmlUnitDefn;
 //
 //	// If VC unit is DIMENSIONLESS ...
@@ -373,6 +373,16 @@ public static UnitDefinition getSBMLUnitDefinition(VCUnitDefinition vcUnitDefn, 
 		} else {
 			String prefix = "";
 			switch (unitScale){
+			case -1:{
+				prefix = "d";
+				unitScale = 0;
+				break;
+			}
+			case -2:{
+				prefix = "c";
+				unitScale = 0;
+				break;
+			}
 			case -3:{
 				prefix = "m";
 				unitScale = 0;

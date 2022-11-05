@@ -1082,19 +1082,7 @@ public class ClientRequestManager
 			@Override
 			public void run(Hashtable<String, Object> hashTable) throws Exception {
 
-				MathMappingCallback dummyCallback = new MathMappingCallback() {
-					public void setProgressFraction(float percentDone) {
-					}
-
-					public void setMessage(String message) {
-					}
-
-					public boolean isInterrupted() {
-						return false;
-					}
-				};
-				MathMapping transformedMathMapping = simContext.createNewMathMapping(dummyCallback,
-						NetworkGenerationRequirements.ComputeFullStandardTimeout);
+				MathMapping transformedMathMapping = simContext.createNewMathMapping();
 
 				BioModel newBioModel = new BioModel(null);
 				SimulationContext transformedSimContext = transformedMathMapping
@@ -1149,29 +1137,12 @@ public class ClientRequestManager
 			@Override
 			public void run(Hashtable<String, Object> hashTable) throws Exception {
 
-				MathMappingCallback dummyCallback = new MathMappingCallback() {
-					public void setProgressFraction(float percentDone) {
-					}
-
-					public void setMessage(String message) {
-					}
-
-					public boolean isInterrupted() {
-						return false;
-					}
-				};
-				MathMapping transformedMathMapping = simContext.createNewMathMapping(dummyCallback,
-						NetworkGenerationRequirements.ComputeFullStandardTimeout);
-//			simContext.setMathDescription(transformedMathMapping.getMathDescription());
+				MathMapping transformedMathMapping = simContext.createNewMathMapping();
 
 				BioModel newBioModel = new BioModel(null);
 				SimulationContext transformedSimContext = transformedMathMapping
 						.getTransformation().transformedSimContext;
 				Model model = transformedSimContext.getModel();
-
-//			for(ReactionStep rs : model.getReactionSteps()) {
-//				model.removeReactionStep(rs);
-//			}
 
 				newBioModel.setModel(model);
 
@@ -3516,33 +3487,15 @@ public class ClientRequestManager
 					}
 				}
 				hashTable.put(BNG_UNIT_SYSTEM, bngUnitSystem);
-			} else if (file != null && !file.getName().isEmpty() && file.getName().toLowerCase().endsWith(".sedml")) {
-				try {
-					XMLSource xmlSource = externalDocInfo.createXMLSource();
-					File sedmlFile = xmlSource.getXmlFile();
-
-					SedML sedml = Libsedml.readDocument(sedmlFile).getSedMLModel();
-					if (sedml == null || sedml.getModels().isEmpty()) {
-						return;
-					}
-//					AbstractTask chosenTask = SEDMLChooserPanel.chooseTask(sedml, requester.getComponent(),
-//							file.getName());
-					List<SedML> sedmls = new ArrayList<>();
-					sedmls.add(sedml);
-					hashTable.put(SEDML_MODELS, sedmls);
-//					hashTable.put(SEDML_TASK, chosenTask);
-
-				} catch (Exception e) {
-					e.printStackTrace();
-					throw new RuntimeException("failed to read document: " + e.getMessage(), e);
-				}
 			} else if (file != null && !file.getName().isEmpty() && (file.getName().toLowerCase().endsWith(".sedx")
 					|| file.getName().toLowerCase().endsWith(".omex"))) {
 				try {
 					ArchiveComponents ac = null;
 					ac = Libsedml.readSEDMLArchive(new FileInputStream(file));
 					List<SEDMLDocument> docs = ac.getSedmlDocuments();
-
+					if (docs.isEmpty()) {
+						throw new RuntimeException("Did not find any supported SEDML files in archive " + file.getName());
+					}
 					List<SedML> sedmls = new ArrayList<>();
 					for (SEDMLDocument doc : docs) {
 						SedML sedml =doc.getSedMLModel();						
@@ -3554,11 +3507,7 @@ public class ClientRequestManager
 						}
 						sedmls.add(sedml);
 					}
-//					AbstractTask chosenTask = SEDMLChooserPanel.chooseTask(sedml, requester.getComponent(),
-//							file.getName());
-
 					hashTable.put(SEDML_MODELS, sedmls);
-//					hashTable.put(SEDML_TASK, chosenTask);
 
 				} catch (Exception e) {
 					e.printStackTrace();
@@ -3626,8 +3575,8 @@ public class ClientRequestManager
 							appList.add(odeSimContext);
 							// set convention for initial conditions in generated application for seed
 							// species (concentration or count)
-							ruleBasedSimContext.setUsingConcentration(bngUnitSystem.isConcentration());
-							odeSimContext.setUsingConcentration(bngUnitSystem.isConcentration());
+							ruleBasedSimContext.setUsingConcentration(bngUnitSystem.isConcentration(), false);
+							odeSimContext.setUsingConcentration(bngUnitSystem.isConcentration(), false);
 
 							RbmModelContainer rbmModelContainer = bioModel.getModel().getRbmModelContainer();
 							RbmUtils.reactionRuleLabelIndex = 0;
@@ -3735,9 +3684,18 @@ public class ClientRequestManager
 								doc = VFrapXmlHelper.VFRAPToBioModel(hashTable, xmlSource, getDocumentManager(),
 										requester);
 							} else if (xmlType.equals(XMLTags.SedMLTypeTag)) {
-								// we know it is a single SedML since it is an actual XML source
-								List<SedML> sedmls = (List<SedML>) hashTable.get(SEDML_MODELS);
-								SedML sedml = sedmls.get(0);						
+								File sedmlFile = xmlSource.getXmlFile();
+								SedML sedml = Libsedml.readDocument(sedmlFile).getSedMLModel();
+								if (sedml == null) {
+									throw new RuntimeException("Failed importing " + file.getName());
+								}
+								if (sedml.getModels().isEmpty()) {
+									throw new RuntimeException("Unable to find any model in " + file.getName());
+								}
+								List<SedML> sedmls = new ArrayList<>();
+								sedmls.add(sedml);
+								hashTable.put(SEDML_MODELS, sedmls);
+								
 								// default to import all tasks
 								List<BioModel> vcdocs = XmlHelper.importSEDML(transLogger, externalDocInfo,
 										sedml, false);
@@ -3875,34 +3833,16 @@ public class ClientRequestManager
 					BioModel bioModel = (BioModel) doc;
 					SimulationContext simulationContext = bioModel.getSimulationContext(0);
 					simulationContext.setName(BMDB_DEFAULT_APPLICATION);
-					MathMappingCallback callback = new MathMappingCallback() {
-						@Override
-						public void setProgressFraction(float fractionDone) {
-						}
-
-						@Override
-						public void setMessage(String message) {
-						}
-
-						@Override
-						public boolean isInterrupted() {
-							return false;
-						}
-					};
-					MathMapping mathMapping = simulationContext.createNewMathMapping(callback,
-							NetworkGenerationRequirements.ComputeFullNoTimeout);
-					MathDescription mathDesc = null;
 					try {
-						mathDesc = mathMapping.getMathDescription(callback);
-						simulationContext.setMathDescription(mathDesc);
+						simulationContext.updateAll(false);
+						MathDescription mathDesc = simulationContext.getMathDescription();
 
-						Simulation sim = new Simulation(mathDesc);
+						Simulation sim = new Simulation(mathDesc, simulationContext);
 						sim.setName(simulationContext.getBioModel().getFreeSimulationName());
 						simulationContext.addSimulation(sim);
 						bioModel.refreshDependencies();
 
-					} catch (MappingException | MathException | MatrixException | ExpressionException
-							| ModelException e1) {
+					} catch (MappingException e1) {
 						e1.printStackTrace();
 					}
 					hashTable.put("doc", doc);
@@ -5111,11 +5051,10 @@ public class ClientRequestManager
 						Issue issues[] = mathMapping.getIssues();
 						if (issues != null && issues.length > 0) {
 							StringBuffer messageBuffer = new StringBuffer(
-									"Issues encountered during Math Generation:\n");
+									"Errors encountered during Math Generation:\n");
 							int issueCount = 0;
 							for (int i = 0; i < issues.length; i++) {
-								if (issues[i].getSeverity() == Issue.SEVERITY_ERROR
-										|| issues[i].getSeverity() == Issue.SEVERITY_WARNING) {
+								if (issues[i].getSeverity() == Issue.Severity.ERROR) {
 									messageBuffer.append(issues[i].getCategory() + " " + issues[i].getSeverityName()
 											+ " : " + issues[i].getMessage() + "\n");
 									issueCount++;

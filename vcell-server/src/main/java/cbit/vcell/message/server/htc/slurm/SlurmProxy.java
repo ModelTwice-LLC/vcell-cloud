@@ -6,17 +6,14 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Random;
 import java.util.Set;
 import java.util.StringTokenizer;
 
@@ -26,23 +23,20 @@ import org.vcell.util.exe.ExecutableException;
 
 import com.google.common.io.Files;
 
-import cbit.rmi.event.WorkerEvent;
 import cbit.vcell.message.server.cmd.CommandService;
+import cbit.vcell.message.server.cmd.CommandService.CommandOutput;
 import cbit.vcell.message.server.cmd.CommandServiceLocal;
 import cbit.vcell.message.server.cmd.CommandServiceSshNative;
-import cbit.vcell.message.server.cmd.CommandService.CommandOutput;
 import cbit.vcell.message.server.htc.HtcException;
 import cbit.vcell.message.server.htc.HtcJobNotFoundException;
 import cbit.vcell.message.server.htc.HtcJobStatus;
 import cbit.vcell.message.server.htc.HtcProxy;
 import cbit.vcell.messaging.server.SimulationTask;
 import cbit.vcell.resource.PropertyLoader;
-import cbit.vcell.resource.ResourceUtil;
 import cbit.vcell.server.HtcJobID;
 import cbit.vcell.server.HtcJobID.BatchSystemType;
 import cbit.vcell.simdata.PortableCommand;
 import cbit.vcell.simdata.PortableCommandWrapper;
-import cbit.vcell.simdata.SimDataConstants;
 import cbit.vcell.solver.SolverDescription;
 import cbit.vcell.solvers.AbstractSolver;
 import cbit.vcell.solvers.ExecutableCommand;
@@ -459,7 +453,7 @@ public class SlurmProxy extends HtcProxy {
 		String vcellUserid = simTask.getUser().getName();
 		KeyValue simID = simTask.getSimulationInfo().getSimulationVersion().getVersionKey();
 		SolverDescription solverDescription = simTask.getSimulation().getSolverTaskDescription().getSolverDescription();
-		MemLimitResults memoryMBAllowed = HtcProxy.getMemoryLimit(vcellUserid,simID,solverDescription,memSizeMB);
+		MemLimitResults memoryMBAllowed = HtcProxy.getMemoryLimit(vcellUserid, simID, solverDescription, memSizeMB, simTask.isPowerUser());
 
 		LineStringBuilder slurmCommands = new LineStringBuilder();
 		slurmScriptInit(jobName, simTask.isPowerUser(), memoryMBAllowed, slurmCommands);
@@ -651,30 +645,37 @@ public class SlurmProxy extends HtcProxy {
 		lsb.append("echo command = ");
 		lsb.write("${cmd_prefix}" + cmd);
 
-		lsb.write("(");
+//		lsb.write("(");
 		if (ec.getLdLibraryPath()!=null){
-			lsb.write("    export LD_LIBRARY_PATH="+ec.getLdLibraryPath().path+":$LD_LIBRARY_PATH");
+			lsb.write("if [ -z ${LD_LIBRARY_PATH+x} ]; then");
+			lsb.write("    export LD_LIBRARY_PATH=" + ec.getLdLibraryPath().path);
+			lsb.write("else");
+			lsb.write("    export LD_LIBRARY_PATH=" + ec.getLdLibraryPath().path + ":$LD_LIBRARY_PATH");
+			lsb.write("fi");
 		}
-		lsb.write("singdevlooperr=\"Failed to mount squashfs image in (read only)\"");
-		lsb.write("let c=0");
-		lsb.write("while [ true ]");
-		lsb.write("    do");
-		lsb.write("      cmdstdout=$("+"${cmd_prefix}" + cmd+" 2>&1)");
-		lsb.write("      innerstate=$?");
-		lsb.write("      if [[ $cmdstdout != *$singdevlooperr* ]]");
-		lsb.write("      then");
-		lsb.write("        exit $innerstate");
-		lsb.write("      fi");
-		lsb.write("      sleep 6");
-		lsb.write("		 let c=c+1");
-		lsb.write("		 if [ $c -eq 10 ]");
-		lsb.write("		 then");
-		lsb.write("		  	echo \"Exceeded retry for singularity mount squashfs error\"");
-		lsb.write("		  	exit $innerstate");
-		lsb.write("		 fi");
-		lsb.write("		 echo retrying $c of 10...");
-		lsb.write("    done");
-		lsb.write(")");
+		// lsb.write("singdevlooperr=\"Failed to mount squashfs image in (read only)\"");
+		// lsb.write("let c=0");
+		// lsb.write("while [ true ]");
+		// lsb.write("    do");
+		// lsb.write("      cmdstdout=$("+"${cmd_prefix}" + cmd+" 2>&1)");
+		// lsb.write("      innerstate=$?");
+		// lsb.write("      if [[ $cmdstdout != *$singdevlooperr* ]]");
+		// lsb.write("      then");
+		// lsb.write("        exit $innerstate");
+		// lsb.write("      fi");
+		// lsb.write("      sleep 6");
+		// lsb.write("		 let c=c+1");
+		// lsb.write("		 if [ $c -eq 10 ]");
+		// lsb.write("		 then");
+		// lsb.write("		  	echo \"Exceeded retry for singularity mount squashfs error\"");
+		// lsb.write("		  	exit $innerstate");
+		// lsb.write("		 fi");
+		// lsb.write("		 echo retrying $c of 10...");
+		// lsb.write("    done");
+		lsb.write("      command=\"${cmd_prefix}" + cmd + "\""); 
+		lsb.write("      $command"); 
+//		lsb.write(")");	// This line needs to stay
+		
 		lsb.write("stat=$?");
 
 		lsb.append("echo ");
@@ -697,6 +698,8 @@ public class SlurmProxy extends HtcProxy {
 			String slurm_central_singularity_dir, String slurm_local_singularity_dir, String simDataDirArchiveHost,
 			File slurm_singularity_central_filepath, String[] environmentVars) {
 		lsb.write("#BEGIN---------SlurmProxy.generateScript():slurmInitSingularity----------");
+		lsb.write("set -x");
+		lsb.newline();
 		lsb.write("TMPDIR="+slurm_tmpdir);
 		lsb.write("echo \"using TMPDIR=$TMPDIR\"");
 		lsb.write("if [ ! -e $TMPDIR ]; then mkdir -p $TMPDIR ; fi");

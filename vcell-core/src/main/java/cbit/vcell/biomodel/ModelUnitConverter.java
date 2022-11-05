@@ -7,6 +7,7 @@ import cbit.vcell.matrix.RationalExp;
 import cbit.vcell.matrix.RationalNumber;
 import cbit.vcell.model.*;
 import cbit.vcell.parser.*;
+import cbit.vcell.solver.Simulation;
 import cbit.vcell.units.VCUnitDefinition;
 import cbit.vcell.xml.XMLSource;
 import cbit.vcell.xml.XmlHelper;
@@ -22,13 +23,13 @@ public class ModelUnitConverter {
 	private final static Logger logger = LogManager.getLogger(ModelUnitConverter.class);
 
 	public static ModelUnitSystem createSbmlModelUnitSystem() {
-		final String substanceUnit = "uM.um3";
+		final String substanceUnit = "umol";
 		String volumeSubstanceSymbol = substanceUnit;
 		String membraneSubstanceSymbol = substanceUnit;
 		String lumpedReactionSubstanceSymbol = substanceUnit;
-		String volumeSymbol = "um3";
-		String areaSymbol = "um2";
-		String lengthSymbol = "um";
+		String volumeSymbol = "l";
+		String areaSymbol = "dm2";
+		String lengthSymbol = "dm";
 		String timeSymbol = "s";
 		ModelUnitSystem mus = ModelUnitSystem.createVCModelUnitSystem(volumeSubstanceSymbol, membraneSubstanceSymbol, lumpedReactionSubstanceSymbol, volumeSymbol, areaSymbol, lengthSymbol, timeSymbol);
 		return mus;
@@ -64,7 +65,7 @@ public class ModelUnitConverter {
 		BioModel newBioModel = XmlHelper.XMLToBioModel(newXMLSource, true, newUnitSystem);
 		Model newModel = newBioModel.getModel();
 		Model oldModel = oldBioModel.getModel();
-
+		
 		VCUnitDefinition dimensionless = newModel.getUnitSystem().getInstance_DIMENSIONLESS();
 		Model.ReservedSymbol KMOLE = newModel.getReservedSymbolByRole(Model.ReservedSymbolRole.KMOLE);
 
@@ -350,7 +351,7 @@ public class ModelUnitConverter {
 				if (!conversionFactor.isOne()){
 					Expression spcSymbol = new Expression(newSTE, newSTE.getNameScope());
 					expr.substituteInPlace(spcSymbol, Expression.mult(new Expression(conversionFactor), spcSymbol));
-					expr.substituteInPlace(expr, expr.flattenFactors(KMOLE.getName()));
+					expr.substituteInPlace(expr, expr.simplifyJSCL());
 				}
 			}
 		}
@@ -366,9 +367,9 @@ public class ModelUnitConverter {
 		if (!conversionFactor.isOne()){
 			Expression oldExp = new Expression(expr);
 			expr.substituteInPlace(oldExp, Expression.mult(new Expression(conversionFactor), oldExp));
-			expr.substituteInPlace(expr, expr.flattenFactors(KMOLE.getName()));
+			expr.substituteInPlace(expr, expr.simplifyJSCL());
 		}
-		Expression flattened = expr.flattenFactors(KMOLE.getName());
+		Expression flattened = expr.simplifyJSCL();
 		Expression origExp = new Expression(expr);
 		expr.substituteInPlace(origExp,flattened);
 	}

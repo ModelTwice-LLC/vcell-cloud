@@ -11,21 +11,7 @@
 package cbit.vcell.xml;
 import java.beans.PropertyVetoException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-import java.util.StringTokenizer;
-import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.Vector;
+import java.util.*;
 import java.util.function.Consumer;
 
 import cbit.vcell.model.*;
@@ -3106,6 +3092,9 @@ MathDescription getMathDescription(Element param, Geometry geometry) throws XmlP
 		tempelement = (Element)iterator.next();
 		getPostProcessingBlock(mathdes, tempelement);
 	}
+
+	mathdes.refreshDependencies();
+
 	return mathdes;
 }
 
@@ -5828,7 +5817,7 @@ Simulation getSimulation(Element param, MathDescription mathDesc, SimulationOwne
 	if (simulationVersion!=null) {
 		simulation = new Simulation(simulationVersion, mathDesc, simulationOwner);
 	} else {
-		simulation = new Simulation(mathDesc);
+		simulation = new Simulation(mathDesc, simulationOwner);
 	}
 	
 	//set attributes
@@ -5836,8 +5825,12 @@ Simulation getSimulation(Element param, MathDescription mathDesc, SimulationOwne
 	
 	try {
 		simulation.setName(name);
+		String importedTaskId = param.getAttributeValue(XMLTags.ImportedTaskIdTag);
+		if(importedTaskId != null) {
+			simulation.setImportedTaskID(importedTaskId);
+		}
+		
 		//String annotation = param.getAttributeValue(XMLTags.AnnotationAttrTag);
-
 		//if (annotation!=null) {
 			//simulation.setDescription(unMangle(annotation));
 		//}
@@ -6068,7 +6061,7 @@ private SimulationContext getSimulationContext(Element param, BioModel biomodel)
 			newsimcontext.setDescription(unMangle(annotation));
 		}
 		//set if using concentration
-		newsimcontext.setUsingConcentration(bUseConcentration);
+		newsimcontext.setUsingConcentration(bUseConcentration, false);
 		// set mass conservation model reduction flag
 		newsimcontext.setUsingMassConservationModelReduction(bMassConservationModelReduction);
 		// set if randomizing init condition or not (for stochastic applications
@@ -6085,7 +6078,7 @@ private SimulationContext getSimulationContext(Element param, BioModel biomodel)
 			newsimcontext.setNetworkConstraints(nc);
 		}
 		 
-	} catch(java.beans.PropertyVetoException e) {
+	} catch(Exception e) {
 		e.printStackTrace(System.out);
 		throw new XmlParseException("Exception", e);
 	} 
@@ -6328,13 +6321,13 @@ private SimulationContext getSimulationContext(Element param, BioModel biomodel)
 	}
 	
 	
-	for (GeometryClass gc : newsimcontext.getGeometry().getGeometryClasses()) {
-		try {
-			StructureSizeSolver.updateUnitStructureSizes(newsimcontext, gc);
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
+//	for (GeometryClass gc : newsimcontext.getGeometry().getGeometryClasses()) {
+//		try {
+//			StructureSizeSolver.updateUnitStructureSizes(newsimcontext, gc);
+//		} catch (Exception e) {
+//			e.printStackTrace();
+//		}
+//	}
 	
 	newsimcontext.getGeometryContext().enforceHierarchicalBoundaryConditions(newsimcontext.getModel().getStructureTopology());
 	

@@ -52,7 +52,6 @@ public class SbmlVcmlConverter {
 	 * @param args -import or -export
 	 */
 public static void main(String[] args) {
-	ResourceUtil.setNativeLibraryDirectory();
 	if (args.length < 2 || args.length > 3) {
 		System.out.println("Usage:\n\t -export path_of_input_file\n\tOR\n\t -import path_of_input_file [-simulate]" );
         System.exit(1);
@@ -123,10 +122,8 @@ public static void main(String[] args) {
 				if (!bSimulate) {
 					return;
 				}
-				// Generate math for lone simContext
-				SimulationContext simContext = (SimulationContext)bioModel.getSimulationContext(0);  
-				MathDescription mathDesc = simContext.createNewMathMapping().getMathDescription();
-				simContext.setMathDescription(mathDesc);
+				bioModel.updateAll(true); // generate math
+				SimulationContext simContext = (SimulationContext)bioModel.getSimulationContext(0);
 
 				// Create basic simulation, with IDA solver (set in solve method) and other defaults, and end time 'Te'
 				org.vcell.util.document.SimulationVersion simVersion = new org.vcell.util.document.SimulationVersion(
@@ -332,7 +329,7 @@ private static void solveSimulation(SimulationJob simJob, String filePathName,  
 		            Variable var = simJob.getSimulationSymbolTable().getVariable(argSimSpec.getVarsList()[i]);
 		            data[i + 1] = new double[data[0].length];
 		            if (var instanceof cbit.vcell.math.Constant) {
-		                double value = ((cbit.vcell.math.Constant) var).getExpression().evaluateConstant();
+		                double value = ((cbit.vcell.math.Constant) var).getExpression().evaluateConstantWithSubstitution();
 		                for (int j = 0; j < data[i + 1].length; j++) {
 		                    data[i + 1][j] = value;
 		                }

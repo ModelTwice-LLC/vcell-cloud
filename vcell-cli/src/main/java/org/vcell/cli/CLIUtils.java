@@ -12,6 +12,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.*;
 import java.nio.file.*;
+import java.nio.file.Files;
 import java.util.*;
 
 //import java.nio.file.Files;
@@ -40,19 +41,19 @@ public class CLIUtils {
         }
     }
 
-    public static void cleanRootDir(File outdir){
-        // If this could be done without hard coding it'd be preferable.
-        String[] filesToDelete = {"detailedResultLog.txt", "fullSuccessLog.txt"};
-        for (String fileName : filesToDelete){
-            File instance = new File(outdir, fileName);
-            if (instance.exists()){
-                instance.delete();
-            }
-        }
-    }
+    // public static void cleanRootDir(File outdir){
+    //     // If this could be done without hard coding it'd be preferable.
+    //     String[] filesToDelete = {"detailedResultLog.txt", "fullSuccessLog.txt"};
+    //     for (String fileName : filesToDelete){
+    //         File instance = new File(outdir, fileName);
+    //         if (instance.exists()){
+    //             instance.delete();
+    //         }
+    //     }
+    // }
 
     public static void setLogLevel(LoggerContext ctx, Level logLevel){
-        Configuration config = ctx.getConfiguration();
+        org.apache.logging.log4j.core.config.Configuration config = ctx.getConfiguration();
         
         LoggerConfig loggerConfig = config.getLoggerConfig(LogManager.getLogger("org.vcell").getName());
         loggerConfig.setLevel(logLevel);
@@ -63,7 +64,7 @@ public class CLIUtils {
 
     public static boolean isBatchExecution(String outputBaseDir, boolean bForceKeepLogs) {
         Path path = Paths.get(outputBaseDir);
-        boolean isDirectory = java.nio.file.Files.isDirectory(path);
+        boolean isDirectory = Files.isDirectory(path);
         return isDirectory || bForceKeepLogs;
     }
 

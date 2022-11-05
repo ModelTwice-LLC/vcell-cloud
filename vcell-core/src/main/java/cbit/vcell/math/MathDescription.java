@@ -136,7 +136,7 @@ public MathDescription(MathDescription mathDescription) {
 		read_database(new CommentStringTokenizer(mathDescription.getVCML_database()));
 	}catch (MathException e){
 		e.printStackTrace(System.out);
-		throw new RuntimeException(e.getMessage());
+		throw new RuntimeException(e.getMessage(), e);
 	}
 }
 
@@ -545,7 +545,7 @@ private MathCompareResults compareEquivalentCanonicalMath(MathDescription newMat
 									//
 									// difference couldn't be reconciled
 									//
-									String msg = "expressions are different Old: '"+oldExps.get(k)+"'\n"+"expressions are different New: '"+newExps.get(k)+"'";
+									String msg = "expressions are different: '"+oldExps.get(k).infix()+"' vs '"+newExps.get(k).infix()+"'";
 									logMathTexts(this, newMathDesc, Decision.MathDifferent_DIFFERENT_EXPRESSION, msg);
 									return new MathCompareResults(Decision.MathDifferent_DIFFERENT_EXPRESSION, msg);
 								}else{
@@ -563,10 +563,23 @@ private MathCompareResults compareEquivalentCanonicalMath(MathDescription newMat
 								return new MathCompareResults(Decision.MathDifferent_DIFFERENT_VARIABLE_IN_EQUATION, msg);
 							}
 						}
+						boolean bPdeDimensionFilteringDifferent = false;
+						if (oldEqu instanceof PdeEquation && newEqu instanceof PdeEquation){
+							PdeEquation oldPde = (PdeEquation) oldEqu;
+							PdeEquation newPde = (PdeEquation) newEqu;
+							bPdeDimensionFilteringDifferent |= oldPde.getBoundaryYm()==null ^ newPde.getBoundaryYm()==null;
+							bPdeDimensionFilteringDifferent |= oldPde.getBoundaryYp()==null ^ newPde.getBoundaryYp()==null;
+							bPdeDimensionFilteringDifferent |= oldPde.getBoundaryZm()==null ^ newPde.getBoundaryZm()==null;
+							bPdeDimensionFilteringDifferent |= oldPde.getBoundaryZp()==null ^ newPde.getBoundaryZp()==null;
+							bPdeDimensionFilteringDifferent |= oldPde.getGradientY()==null ^ newPde.getGradientY()==null;
+							bPdeDimensionFilteringDifferent |= oldPde.getGradientZ()==null ^ newPde.getGradientZ()==null;
+							bPdeDimensionFilteringDifferent |= oldPde.getVelocityY()==null ^ newPde.getVelocityY()==null;
+							bPdeDimensionFilteringDifferent |= oldPde.getVelocityZ()==null ^ newPde.getVelocityZ()==null;
+						}
 						//
 						// equation was not strictly "equal" but passed all tests, replace with old equation and move on
 						//
-						if (bFoundDifference || bOdePdeMismatch){
+						if (bFoundDifference || bOdePdeMismatch || bPdeDimensionFilteringDifferent){
 							subDomainsNew[i].replaceEquation(oldEqu);
 						}else{
 							//
@@ -628,8 +641,7 @@ private MathCompareResults compareEquivalentCanonicalMath(MathDescription newMat
 										//
 										// difference couldn't be reconciled
 										//
-										String msg = "expressions are different Old: '"+oldExps[k]+"'\n"+
-												"expressions are different New: '"+newExps[k]+"'";
+										String msg = "expressions are different: '"+oldExps[k].infix()+"' vs '"+newExps[k].infix()+"'";
 										logMathTexts(this, newMathDesc, Decision.MathDifferent_DIFFERENT_EXPRESSION, msg);
 										return new MathCompareResults(Decision.MathDifferent_DIFFERENT_EXPRESSION, msg);
 									}else{
@@ -1218,6 +1230,8 @@ public static MathDescription fromEditor(MathDescription oldMathDesc, String vcm
 	mathDesc.clearAll();
 	mathDesc.setGeometry0(oldMathDesc.getGeometry());
 	mathDesc.read_database(tokens);
+
+	mathDesc.refreshDependencies();
 
 	//
 	// compute warning string (if necessary)
@@ -2086,7 +2100,8 @@ public void gatherIssues(IssueContext issueContext, List<Issue> issueList) {
 			try {
 				var.getExpression().evaluateConstant();
 			} catch (Exception ex) {
-				ex.printStackTrace(System.out);
+				String msg = "Constant cannot be evaluated to a number, "+var.getName()+"="+var.getExpression().infix();
+				logger.error(msg, ex);
 				Issue issue = new Issue(var, issueContext, IssueCategory.MathDescription_Constant_NotANumber, VCellErrorMessages.getErrorMessage(VCellErrorMessages.MATH_DESCRIPTION_CONSTANT, var.getExpression().infix()), Issue.SEVERITY_ERROR);
 				issueList.add(issue);
 			}
@@ -3206,9 +3221,9 @@ if(name.equals("ATP/ADP"))
 			}
 			throw new MathFormatException("unexpected identifier "+tokenStr);
 		}		
-	}catch (Throwable e){
+	}catch (Exception e){
 		e.printStackTrace(System.out);
-		throw new MathException("line #" + tokens.lineIndex() + " Exception: "+e.getMessage());
+		throw new MathException("line #" + tokens.lineIndex() + " Exception: "+e.getMessage(), e);
 	}
 	refreshDependencies();
 	fireStateChanged();
@@ -3223,6 +3238,14 @@ public void addParticleMolecularType(ParticleMolecularType particleMolecularType
 
 
 public void refreshDependencies() {
+	for (Variable var : Collections.list(getVariables())){
+		try {
+			var.bind(this);
+		} catch (ExpressionBindingException e) {
+			logger.warn("unable to bind expression for math variable "+var.getName()+" when reading from VCML: "+e.getMessage());
+		}
+	}
+
 	for (SubDomain subDomain : this.subDomainList){
 		subDomain.refreshDependencies(this);
 	}
@@ -3469,12 +3492,10 @@ public static MathCompareResults testEquivalency(MathSymbolTableFactory mathSymb
 			// now compare
 			return canonicalMath2.compareEquivalentCanonicalMath(canonicalMath1);
 		}
-	}catch (MathException e){
-		e.printStackTrace(System.out);
-		throw new RuntimeException(e.getMessage());
-	}catch (ExpressionException e){
-		e.printStackTrace(System.out);
-		throw new RuntimeException(e.getMessage());
+	}catch (MathException | ExpressionException e){
+		String msg = "failure while testing for math equivalency: "+e.getMessage();
+		logger.error(msg, e);
+		throw new RuntimeException(msg, e);
 	}
 }
 
