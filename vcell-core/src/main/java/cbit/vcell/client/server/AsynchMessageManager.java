@@ -102,15 +102,11 @@ public void created(DataAccessException dae) {
 }
 private void poll( )  {
 	if (!bPoll.get()) {
-		if (lg.isDebugEnabled()){
-			lg.debug("polling stopped");
-		}
+		lg.info("polling stopped");
 		return;
 	}
 	
-	if (lg.isDebugEnabled()){
-		lg.debug("polling");
-	}
+	lg.trace("polling");
 	boolean report = counter%50 == 0;
 	long begin = 0;
 	long end = 0;
@@ -162,8 +158,8 @@ private void poll( )  {
 	    }
     }
     finally {
-    	if (lg.isDebugEnabled()) {
-    		lg.debug(ExecutionTrace.justClassName(this) + " poll time " + pollTime + " seconds");
+    	if (lg.isTraceEnabled()) {
+    		lg.trace(ExecutionTrace.justClassName(this) + " poll time " + pollTime + " seconds");
     	}
     	if (bPoll.get()){
     		schedule(pollTime);

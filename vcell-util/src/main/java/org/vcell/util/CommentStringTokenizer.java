@@ -240,7 +240,7 @@ private void refreshCurrTokenizer() {
 		String nextLine = null;
 		try {
 			nextLine = reader.readLine();
-			lg.debug(nextLine);
+			lg.trace(nextLine);
 		} catch (IOException e) {			
 			e.printStackTrace();
 			throw new NoSuchElementException(e.getMessage());
