@@ -1,16 +1,18 @@
 package org.vcell.rest;
 
-import cbit.vcell.message.*;
-import cbit.vcell.modeldb.AdminDBTopLevel;
-import cbit.vcell.modeldb.DatabaseServerImpl;
-import cbit.vcell.modeldb.LocalAdminDbServer;
-import cbit.vcell.mongodb.VCMongoMessage;
-import cbit.vcell.mongodb.VCMongoMessage.ServiceName;
-import cbit.vcell.resource.PropertyLoader;
-import freemarker.template.Configuration;
-import freemarker.template.DefaultObjectWrapper;
+import java.io.File;
+
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.PBEParameterSpec;
+import javax.xml.bind.DatatypeConverter;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jose4j.jwk.RsaJsonWebKey;
 import org.restlet.Client;
 import org.restlet.Server;
 import org.restlet.data.Parameter;
@@ -19,6 +21,7 @@ import org.restlet.engine.Engine;
 import org.restlet.ext.wadl.WadlApplication;
 import org.restlet.ext.wadl.WadlComponent;
 import org.restlet.util.Series;
+import org.vcell.auth.JWTUtils;
 import org.vcell.db.ConnectionFactory;
 import org.vcell.db.DatabaseService;
 import org.vcell.db.KeyFactory;
@@ -32,18 +35,26 @@ import org.vcell.util.document.User;
 import org.vcell.util.document.UserInfo;
 import org.vcell.util.document.UserLoginInfo;
 
-import javax.crypto.Cipher;
-import javax.crypto.SecretKey;
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
-import javax.crypto.spec.PBEParameterSpec;
-import javax.xml.bind.DatatypeConverter;
-import java.io.File;
+import cbit.vcell.message.VCDestination;
+import cbit.vcell.message.VCMessage;
+import cbit.vcell.message.VCMessagingDelegate;
+import cbit.vcell.message.VCMessagingService;
+import cbit.vcell.message.VCRpcRequest;
+import cbit.vcell.modeldb.AdminDBTopLevel;
+import cbit.vcell.modeldb.DatabaseServerImpl;
+import cbit.vcell.modeldb.LocalAdminDbServer;
+import cbit.vcell.mongodb.VCMongoMessage;
+import cbit.vcell.mongodb.VCMongoMessage.ServiceName;
+import cbit.vcell.resource.PropertyLoader;
+import cbit.vcell.resource.PythonSupport;
+import cbit.vcell.resource.PythonSupport.PythonPackage;
+import freemarker.template.Configuration;
+import freemarker.template.DefaultObjectWrapper;
 
 public class VCellApiCloudMain {
 	
 	private final static Logger lg = LogManager.getLogger(VCellApiCloudMain.class);
-	private final static String TEST_USER = "vcellNagios";
+	private final static String TEST_USER = PropertyLoader.TESTACCOUNT_USERID;
 	/**
 	 * @param args
 	 */
@@ -58,8 +69,8 @@ public class VCellApiCloudMain {
 				throw new RuntimeException("javascriptDir '"+args[0]+"' is not a directory");
 			}
 
-			PropertyLoader.loadProperties( ); //don't validate
-			
+			PropertyLoader.loadProperties(REQUIRED_SERVICE_PROPERTIES);
+
 			lg.debug("properties loaded");
 			
 			String portString = args[1];
@@ -165,9 +176,8 @@ public class VCellApiCloudMain {
 //		        Cipher pbeCipher = Cipher.getInstance("PBEWithMD5AndDES");
 //		        pbeCipher.init(Cipher.DECRYPT_MODE, key, new PBEParameterSpec(new byte[] {32,11,55,121,01,42,89,11}, 20));
 //		        keystorePassword = new String(pbeCipher.doFinal(DatatypeConverter.parseBase64Binary(keystorePassword)));
-//			}catch (Exception e){
-//				System.out.println("password unhashing didn't work - trying clear text password");
-//				e.printStackTrace();
+//			}catch (IllegalBlockSizeException e){
+//				lg.warn("password unhashing didn't work - trying clear text password: "+e.getMessage());
 //			}
 //			Server httpsServer = component.getServers().add(Protocol.HTTPS,port);
 //			Series<Parameter> parameters = httpsServer.getContext().getParameters();
@@ -195,14 +205,18 @@ public class VCellApiCloudMain {
 //			PythonSupport.verifyInstallation(new PythonPackage[] { PythonPackage.COPASI, PythonPackage.LIBSBML, PythonPackage.THRIFT });
 //
 //			lg.trace("start Optimization Service");
-			
-			
+
+			RsaJsonWebKey jsonWebKey = JWTUtils.createNewJsonWebKey("k1");
+			JWTUtils.setRsaJsonWebKey(jsonWebKey);
+
 			lg.trace("create app");
-			boolean bIgnoreHostProblems = true;
-			boolean bIgnoreCertProblems = true;
+			boolean bIgnoreHostMismatchForHealthService = true; // HealthService connects via localhost, this will never match host in production cert
+			boolean bIgnoreCertProblemsForHealthService = PropertyLoader.getBooleanProperty(PropertyLoader.sslIgnoreCertProblems, false);
 			User testUser = localAdminDbServer.getUser(TEST_USER);
 			UserInfo testUserInfo = localAdminDbServer.getUserInfo(testUser.getID()); // lookup hashed auth credentials in database.
-			HealthService healthService = new HealthService(restEventService, "localhost", port, bIgnoreCertProblems, bIgnoreHostProblems, testUserInfo.userid, testUserInfo.digestedPassword0);
+			HealthService healthService = new HealthService(restEventService, "localhost", port,
+					bIgnoreCertProblemsForHealthService, bIgnoreHostMismatchForHealthService,
+					testUserInfo.userid, testUserInfo.digestedPassword0);
 			AdminService adminService = new AdminService(adminDbTopLevel, databaseServerImpl);
 			RpcService rpcService = new RpcService(vcMessagingService_int);
 			WadlApplication app = new VCellApiApplication(restDatabaseService, userVerifier, rpcService, restEventService, adminService, templateConfiguration, healthService, javascriptDir);
@@ -222,4 +236,26 @@ public class VCellApiCloudMain {
 			lg.error(e.getMessage(), e);
 		}
 	}
+
+	private static final String REQUIRED_SERVICE_PROPERTIES[] = {
+			PropertyLoader.vcellServerIDProperty,
+			PropertyLoader.installationRoot,
+			PropertyLoader.dbConnectURL,
+			PropertyLoader.dbDriverName,
+			PropertyLoader.dbUserid,
+			PropertyLoader.dbPasswordFile,
+			PropertyLoader.mongodbHostInternal,
+			PropertyLoader.mongodbPortInternal,
+			PropertyLoader.mongodbDatabase,
+			PropertyLoader.jmsIntHostInternal,
+			PropertyLoader.jmsIntPortInternal,
+//			PropertyLoader.jmsUser,
+//			PropertyLoader.jmsPasswordFile,
+			PropertyLoader.jmsBlobMessageUseMongo,
+			PropertyLoader.vcellSMTPHostName,
+			PropertyLoader.vcellSMTPPort,
+			PropertyLoader.vcellSMTPEmailAddress,
+			PropertyLoader.vcellapiKeystoreFile
+};
+
 }
