@@ -7,6 +7,7 @@ ssh_key=
 skip_push=false
 skip_maven=false
 skip_singularity=false
+build_k8s=false
 mvn_repo=$HOME/.m2
 
 show_help() {
@@ -33,6 +34,8 @@ show_help() {
 	echo "    --skip-maven          skip vcell software build prior to building containers"
 	echo ""
 	echo "    --skip-push           skip pushing containers to repository"
+	echo ""
+	echo "    --build-k8s           build for kubernetes (default = false - build for swarm)"
 	echo ""
 	echo "    --mvn-repo REPO_DIR   override local maven repository (defaults to $HOME/.m2)"
 	exit 1
@@ -66,6 +69,9 @@ while :; do
 		--skip-push)
 			skip_push=true
 			;;
+		--build-k8s)
+			build_k8s=true
+			;;
 		--skip-singularity)
 			skip_singularity=true
 			;;
@@ -90,8 +96,13 @@ tag=$3
 
 build_api() {
 	echo "building $repo/vcell-api:$tag"
-	echo "sudo docker build -f Dockerfile-api-dev --tag $repo/vcell-api:$tag ../.."
-	sudo docker build -f Dockerfile-api-dev --tag $repo/vcell-api:$tag ../..
+	if [ "$build_k8s" == "false" ]; then
+		Dockerfile_api="Dockerfile-api-dev"
+	else
+		Dockerfile_api="Dockerfile-api-dev-k8s"
+	fi
+	echo "sudo docker build -f ${Dockerfile_api} --tag $repo/vcell-api:$tag ../.."
+	sudo docker build -f ${Dockerfile_api} --tag $repo/vcell-api:$tag ../..
 	if [[ $? -ne 0 ]]; then echo "docker build failed"; exit 1; fi
 	if [ "$skip_push" == "false" ]; then
 		sudo docker push $repo/vcell-api:$tag
@@ -404,7 +415,7 @@ shift
 
 if [ "$skip_maven" == "false" ]; then
 	pushd ../..
-	mvn -Dmaven.repo.local=$mvn_repo clean install dependency:copy-dependencies -DskipTests=true
+	mvn -Dmaven.repo.local=$mvn_repo --batch-mode clean install dependency:copy-dependencies -DskipTests=true
 	popd
 fi
 
